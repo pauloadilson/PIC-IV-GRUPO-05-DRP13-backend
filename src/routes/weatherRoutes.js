@@ -65,7 +65,7 @@ router.get('/forecast', async (req, res) => {
  *  - year: ano específico (ex: 2024, 2026)
  *  - start_year / end_year: intervalo de anos
  *  - month: mês específico (1 a 12)
- *  - crop: cultura de interesse (alface_solaris, salsinha, flor_do_deserto)
+ *  - crop: cultura de interesse (alface_solaris, salsinha, Rosa_do_deserto)
  *  - summary: se "true", retorna apenas os resumos consolidados anuais
  */
 router.get('/history', (req, res) => {

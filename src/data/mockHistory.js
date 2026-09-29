@@ -87,7 +87,7 @@ function generateHistoricalData() {
           risco_temperatura_elevada: tempMax >= 32 ? "ALTO" : (tempMax >= 29 ? "MEDIO" : "BAIXO"),
           precipitacao_acumulada_mm: precipitation
         },
-        flor_do_deserto: {
+        Rosa_do_deserto: {
           excesso_umidade: humidity > 72 || precipitation > 120 ? "CRITICO" : (precipitation > 60 ? "MEDIO" : "BAIXO"),
           tempo_sem_chuva_adequado: precipitation < 60 ? "IDEAL" : "ATENCAO"
         }

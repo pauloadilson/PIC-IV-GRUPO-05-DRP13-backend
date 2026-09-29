@@ -1,6 +1,6 @@
 # Viveiro Bioterra - Back-end API
 
-API de serviços meteorológicos para o sistema de monitoramento climático e apoio à tomada de decisão no cultivo de **Alface Solaris**, **Salsinha** e **Flor do Deserto** no Viveiro Bioterra (Álvares Machado / Presidente Prudente - SP).
+API de serviços meteorológicos para o sistema de monitoramento climático e apoio à tomada de decisão no cultivo de **Alface Solaris**, **Salsinha** e **Rosa do Deserto** no Viveiro Bioterra (Álvares Machado / Presidente Prudente - SP).
 
 ---
 
@@ -77,7 +77,7 @@ Cobre o intervalo completo de **2004 até 08/2026**.
   - `year`: Filtra dados mensais de um ano específico (ex: `?year=2024` ou `?year=2026`).
   - `start_year` e `end_year`: Intervalo de anos (ex: `?start_year=2020&end_year=2025`).
   - `month`: Filtra por mês (1 a 12).
-  - `crop`: Filtra e projeta métricas de impacto nas culturas (`alface_solaris`, `salsinha`, `flor_do_deserto`).
+  - `crop`: Filtra e projeta métricas de impacto nas culturas (`alface_solaris`, `salsinha`, `Rosa_do_deserto`).
   - `summary`: Se `true`, retorna o consolidado anual (precipitação total, temperaturas extremas, contagem de granizo, ventanias e ondas de calor).
   - `limit`: Limita a quantidade de registros mensais retornados.
 
@@ -112,7 +112,7 @@ Cobre o intervalo completo de **2004 até 08/2026**.
       "crop_impacts": {
         "alface_solaris": { "stress_termico": "MEDIO", "dias_nublados_estimados": 2, "tempo_sem_chuva_dias": 22 },
         "salsinha": { "excesso_umidade": "BAIXO", "risco_temperatura_elevada": "MEDIO" },
-        "flor_do_deserto": { "excesso_umidade": "BAIXO", "tempo_sem_chuva_adequado": "IDEAL" }
+        "Rosa_do_deserto": { "excesso_umidade": "BAIXO", "tempo_sem_chuva_adequado": "IDEAL" }
       }
     }
   ]
