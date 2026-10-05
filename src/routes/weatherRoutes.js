@@ -2,6 +2,7 @@ const express = require('express');
 const axios = require('axios');
 const mockForecast = require('../data/mockForecast');
 const mockHistoryData = require('../data/mockHistory');
+const { getDashboardData } = require('../services/dashboardService');
 
 const router = express.Router();
 
@@ -9,6 +10,28 @@ const router = express.Router();
 const DEFAULT_WOEID = '458410'; // Álvares Machado / Presidente Prudente - SP
 const DEFAULT_HG_KEY = process.env.HGBRASIL_KEY;
 const HG_BASE_URL = 'https://api.hgbrasil.com/weather';
+
+/**
+ * GET /api/weather/dashboard
+ * Retorna o payload completo e integrado pronto para consumo do Front-end:
+ * Clima geral, riscos dinâmicos e métricas avaliadas para cada cultura.
+ */
+router.get('/dashboard', async (req, res) => {
+  try {
+    const { woeid, key } = req.query;
+    const dashboard = await getDashboardData({ woeid, key });
+    return res.json({
+      success: true,
+      ...dashboard
+    });
+  } catch (error) {
+    console.error('[ERROR] Erro ao gerar dados do dashboard:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Erro ao gerar dados do painel meteorológico.'
+    });
+  }
+});
 
 /**
  * GET /api/weather/forecast
