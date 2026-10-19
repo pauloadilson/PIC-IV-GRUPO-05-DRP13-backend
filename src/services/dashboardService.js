@@ -1,10 +1,10 @@
 const axios = require('axios');
 const mockForecast = require('../data/mockForecast');
 
-// URLs da API coletora (pic-iv-api)
-const PIC_API_URL = process.env.PIC_API_URL || process.env.COLLECTOR_API_URL || 'http://127.0.0.1:8000';
-const REMOTE_PIC_API_URL = process.env.REMOTE_PIC_API_URL || 'https://pic-iv-api.vercel.app';
-const PIC_API_KEY = process.env.PIC_API_KEY || process.env.COLLECTOR_API_KEY;
+// URLs da API coletora (pic-iv-api) obtidas exclusivamente via variáveis de ambiente (.env / Vercel)
+const PIC_API_URL = (process.env.PIC_API_URL || process.env.COLLECTOR_API_URL || '').trim().replace(/\/$/, '');
+const REMOTE_PIC_API_URL = (process.env.REMOTE_PIC_API_URL || '').trim().replace(/\/$/, '');
+const PIC_API_KEY = process.env.PIC_API_KEY || process.env.COLLECTOR_API_KEY || '';
 
 /**
  * Mapeia o condition_slug da HG Brasil para ícone do Bootstrap Icons
@@ -493,46 +493,47 @@ function convertObservacoesToMeteorologiaFormat(obsPayload) {
 
 /**
  * Consulta o endpoint consolidado `GET /meteorologia` na `pic-iv-api`
- * (tentando primeiro local `http://127.0.0.1:8000` e depois Vercel `https://pic-iv-api.vercel.app`).
+ * utilizando exclusivamente as URLs configuradas nas variáveis de ambiente.
  */
 async function fetchMeteorologiaFromPicApi({ dias = 5, max_idade_minutos = 60, forcar_coleta = false } = {}) {
   const headers = PIC_API_KEY ? { 'X-API-Key': PIC_API_KEY } : {};
   const params = { dias, max_idade_minutos, forcar_coleta };
+  const isRunningOnVercel = Boolean(process.env.VERCEL);
 
-  // 1. Tenta GET /meteorologia na instância local (http://127.0.0.1:8000)
-  try {
-    const response = await axios.get(`${PIC_API_URL}/meteorologia`, {
-      params,
-      headers,
-      timeout: 4000
-    });
-    if (response.data && (response.data.atual || response.data.results)) {
-      return { data: response.data, source: `pic_iv_api_local (${response.data.origem_dados || 'banco'})` };
+  // Define a lista de URLs base a partir das variáveis de ambiente definidas
+  const rawUrls = isRunningOnVercel
+    ? [REMOTE_PIC_API_URL, PIC_API_URL]
+    : [PIC_API_URL, REMOTE_PIC_API_URL];
+  const candidateUrls = [...new Set(rawUrls.filter(Boolean))];
+
+  // 1. Tenta GET /meteorologia nas URLs candidatas
+  for (const baseUrl of candidateUrls) {
+    try {
+      const response = await axios.get(`${baseUrl}/meteorologia`, {
+        params,
+        headers,
+        timeout: 4500
+      });
+      if (response.data && (response.data.atual || response.data.results)) {
+        const label = baseUrl.includes('127.0.0.1') || baseUrl.includes('localhost')
+          ? 'pic_iv_api_local'
+          : 'pic_iv_api_vercel';
+        return {
+          data: response.data,
+          source: `${label} (${response.data.origem_dados || 'banco'})`
+        };
+      }
+    } catch (err) {
+      // Tenta próxima URL candidata
     }
-  } catch (err) {
-    // Segue para tentativa remota
   }
 
-  // 2. Tenta GET /meteorologia na instância remota (https://pic-iv-api.vercel.app)
-  try {
-    const remoteResp = await axios.get(`${REMOTE_PIC_API_URL}/meteorologia`, {
-      params,
-      headers,
-      timeout: 5000
-    });
-    if (remoteResp.data && (remoteResp.data.atual || remoteResp.data.results)) {
-      return { data: remoteResp.data, source: `pic_iv_api_vercel (${remoteResp.data.origem_dados || 'banco'})` };
-    }
-  } catch (err) {
-    // Segue para fallback de /observacoes/72 caso /meteorologia ainda não esteja no deploy remoto
-  }
-
-  // 3. Fallback: consulta /observacoes/72 na pic-iv-api (local ou remota)
-  for (const baseUrl of [PIC_API_URL, REMOTE_PIC_API_URL]) {
+  // 2. Fallback: consulta /observacoes/72 caso /meteorologia ainda não esteja ativo no deploy remoto
+  for (const baseUrl of candidateUrls) {
     try {
       const obsResp = await axios.get(`${baseUrl}/observacoes/72`, {
         headers,
-        timeout: 4000
+        timeout: 4500
       });
       if (obsResp.data && Array.isArray(obsResp.data.observacoes) && obsResp.data.observacoes.length > 0) {
         return {
@@ -541,11 +542,11 @@ async function fetchMeteorologiaFromPicApi({ dias = 5, max_idade_minutos = 60, f
         };
       }
     } catch (err) {
-      // Tenta próximo
+      // Tenta próxima URL
     }
   }
 
-  // 4. Contingência final usando mockForecast local
+  // 3. Contingência final usando mockForecast local
   return {
     data: {
       cidade: mockForecast.results.city,
