@@ -22,15 +22,17 @@ app.use('/api/weather', weatherRoutes);
 app.get('/', (req, res) => {
   res.json({
     name: 'Viveiro Bioterra - Weather API Backend',
-    version: '1.0.0',
+    version: '1.1.0',
     status: 'online',
     endpoints: {
+      dashboard: '/api/weather/dashboard?dias=5',
+      meteorologia: '/api/weather/meteorologia?dias=5',
       forecast: '/api/weather/forecast',
       history: '/api/weather/history'
     },
     docs: {
-      forecast: 'Previsão do tempo atual e próximos dias via HG Brasil Weather API (com contingência)',
-      history: 'Série histórica meteorológica INMET (2004 a 08/2026) com suporte a filtros'
+      dashboard: 'Consome GET /meteorologia da pic-iv-api e formata o payload para o Front-end (nos moldes do mockData.js)',
+      meteorologia: 'Repassa os dados atuais, previsão e histórico (24h/72h) da pic-iv-api'
     }
   });
 });
@@ -66,8 +68,8 @@ if (require.main === module) {
     console.log(`=======================================================`);
     console.log(` 🌱 Viveiro Bioterra - API Backend rodando com sucesso!`);
     console.log(` 🌐 Servidor escutando na porta: ${PORT}`);
-    console.log(` 📡 Previsão HG Brasil: http://localhost:${PORT}/api/weather/forecast`);
-    console.log(` 📊 Histórico INMET:    http://localhost:${PORT}/api/weather/history`);
+    console.log(` 📊 Dashboard Frontend: http://localhost:${PORT}/api/weather/dashboard`);
+    console.log(` 📡 Meteorologia (API): http://localhost:${PORT}/api/weather/meteorologia`);
     console.log(`=======================================================`);
   });
 }

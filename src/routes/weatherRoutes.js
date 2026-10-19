@@ -1,25 +1,25 @@
 const express = require('express');
-const axios = require('axios');
 const mockForecast = require('../data/mockForecast');
 const mockHistoryData = require('../data/mockHistory');
-const { getDashboardData } = require('../services/dashboardService');
+const {
+  getDashboardData,
+  fetchMeteorologiaFromPicApi
+} = require('../services/dashboardService');
 
 const router = express.Router();
 
-// Configurações padrão para HG Brasil Weather
-const DEFAULT_WOEID = '458410'; // Álvares Machado / Presidente Prudente - SP
-const DEFAULT_HG_KEY = process.env.HGBRASIL_KEY;
-const HG_BASE_URL = 'https://api.hgbrasil.com/weather';
-
 /**
  * GET /api/weather/dashboard
- * Retorna o payload completo e integrado pronto para consumo do Front-end:
- * Clima geral, riscos dinâmicos e métricas avaliadas para cada cultura.
+ * Consome `GET /meteorologia` da `pic-iv-api` (com proteção de cota e histórico 24h/72h)
+ * e retorna o payload formatado para o Front-end (nos moldes do mockData.js).
  */
 router.get('/dashboard', async (req, res) => {
   try {
-    const { woeid, key } = req.query;
-    const dashboard = await getDashboardData({ woeid, key });
+    const dias = req.query.dias ? Number(req.query.dias) : 5;
+    const max_idade_minutos = req.query.max_idade_minutos ? Number(req.query.max_idade_minutos) : 60;
+    const forcar_coleta = req.query.forcar_coleta === 'true';
+
+    const dashboard = await getDashboardData({ dias, max_idade_minutos, forcar_coleta });
     return res.json({
       success: true,
       ...dashboard
@@ -34,47 +34,32 @@ router.get('/dashboard', async (req, res) => {
 });
 
 /**
- * GET /api/weather/forecast
- * Retorna dados de previsão do tempo obtidos da API HG Brasil.
- * Caso a API externa falhe ou atinja o limite de requisições, faz fallback gracioso para mock.
+ * GET /api/weather/meteorologia (e alias GET /api/weather/forecast)
+ * Repassa a consulta consolidada da `pic-iv-api` (`GET /meteorologia`),
+ * incluindo `atual`, `previsao`, `historico` (24h e 72h) e `results`.
  */
-router.get('/forecast', async (req, res) => {
-  const woeid = req.query.woeid || DEFAULT_WOEID;
-  const key = req.query.key || DEFAULT_HG_KEY;
-  const cityName = req.query.city_name;
-
-  const params = {
-    key,
-    ...(cityName ? { city_name: cityName } : { woeid })
-  };
-
+router.get(['/meteorologia', '/forecast'], async (req, res) => {
   try {
-    const response = await axios.get(HG_BASE_URL, {
-      params,
-      timeout: 5000
+    const dias = req.query.dias ? Number(req.query.dias) : 5;
+    const max_idade_minutos = req.query.max_idade_minutos ? Number(req.query.max_idade_minutos) : 60;
+    const forcar_coleta = req.query.forcar_coleta === 'true';
+
+    const { data, source } = await fetchMeteorologiaFromPicApi({
+      dias,
+      max_idade_minutos,
+      forcar_coleta
     });
 
-    if (response.data && response.data.results) {
-      return res.json({
-        success: true,
-        source: 'hg_brasil_api',
-        data: response.data
-      });
-    }
-
-    // Se a API retornou sem erro HTTP mas com erro de chave/dados
     return res.json({
       success: true,
-      source: 'fallback_mock',
-      warning: 'API HG Brasil retornou resposta sem resultados. Servindo dados mockados de contingência.',
-      data: mockForecast
+      source,
+      data
     });
   } catch (error) {
-    console.warn(`[WARN] Falha ao consultar HG Brasil API (${error.message}). Retornando dados mockados de contingência.`);
+    console.warn(`[WARN] Falha ao consultar pic-iv-api (${error.message}). Retornando mock de contingência.`);
     return res.json({
       success: true,
       source: 'fallback_mock',
-      warning: `Não foi possível contatar a API HG Brasil (${error.message}). Servindo dados mockados de contingência.`,
       data: mockForecast
     });
   }
@@ -82,14 +67,7 @@ router.get('/forecast', async (req, res) => {
 
 /**
  * GET /api/weather/history
- * Retorna dados históricos meteorológicos baseados nos padrões de medição do INMET.
- * Cobertura: 2004 até 08/2026.
- * Suporta filtros por:
- *  - year: ano específico (ex: 2024, 2026)
- *  - start_year / end_year: intervalo de anos
- *  - month: mês específico (1 a 12)
- *  - crop: cultura de interesse (alface_solaris, salsinha, Rosa_do_deserto)
- *  - summary: se "true", retorna apenas os resumos consolidados anuais
+ * Retorna dados históricos meteorológicos baseados nos padrões de medição do INMET (2004 até 08/2026).
  */
 router.get('/history', (req, res) => {
   try {
@@ -98,14 +76,12 @@ router.get('/history', (req, res) => {
     let monthly = [...mockHistoryData.monthly_data];
     let yearlySummary = [...mockHistoryData.summary_by_year];
 
-    // Filtro por ano específico
     if (year) {
       const yearNum = parseInt(year, 10);
       monthly = monthly.filter(item => item.year === yearNum);
       yearlySummary = yearlySummary.filter(item => item.year === yearNum);
     }
 
-    // Filtro por intervalo de anos
     if (start_year) {
       const startNum = parseInt(start_year, 10);
       monthly = monthly.filter(item => item.year >= startNum);
@@ -117,13 +93,11 @@ router.get('/history', (req, res) => {
       yearlySummary = yearlySummary.filter(item => item.year <= endNum);
     }
 
-    // Filtro por mês
     if (month) {
       const monthNum = parseInt(month, 10);
       monthly = monthly.filter(item => item.month === monthNum);
     }
 
-    // Projeção por cultura, se requisitada
     if (crop) {
       const cropKey = crop.toLowerCase().replace(/[\s-]/g, '_');
       monthly = monthly.map(item => ({
@@ -139,7 +113,6 @@ router.get('/history', (req, res) => {
       }));
     }
 
-    // Limite de registros
     if (limit) {
       const limitNum = parseInt(limit, 10);
       if (!isNaN(limitNum) && limitNum > 0) {
@@ -147,7 +120,6 @@ router.get('/history', (req, res) => {
       }
     }
 
-    // Se o cliente pediu apenas o resumo anual
     if (summary === 'true' || summary === '1') {
       return res.json({
         success: true,
