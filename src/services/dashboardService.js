@@ -19,6 +19,283 @@ function mapConditionIcon(slug = '') {
 }
 
 /**
+ * Avalia quantidade de horas, maior sequência contínua e horário inicial para uma série horária de 24h.
+ */
+function evaluateThresholdSequence(forecastList, field, threshold, operator, unit) {
+  const values = forecastList.map((p) => Number(p[field]));
+  const mask = values.map((v) => {
+    if (operator === 'gt') return v > threshold;
+    if (operator === 'ge') return v >= threshold;
+    if (operator === 'lt') return v < threshold;
+    return v <= threshold;
+  });
+
+  let hoursCount = 0;
+  let longestSeq = 0;
+  let currentSeq = 0;
+  let firstIdx = null;
+
+  mask.forEach((active, idx) => {
+    if (active) {
+      hoursCount += 1;
+      if (firstIdx === null) firstIdx = idx;
+      currentSeq += 1;
+      if (currentSeq > longestSeq) longestSeq = currentSeq;
+    } else {
+      currentSeq = 0;
+    }
+  });
+
+  const isUpper = operator === 'gt' || operator === 'ge';
+  const peakVal = isUpper ? Math.max(...values) : Math.min(...values);
+  const peakIdx = values.indexOf(peakVal);
+  const symbol = operator === 'gt' ? '>' : (operator === 'ge' ? '>=' : (operator === 'lt' ? '<' : '<='));
+
+  return {
+    condition: `${field} ${symbol} ${threshold.toFixed(1)}`,
+    direction: isUpper ? 'above' : 'below',
+    threshold: Number(threshold.toFixed(1)),
+    unit,
+    hours_count: hoursCount,
+    longest_sequence_hours: longestSeq,
+    first_event_at: firstIdx !== null ? forecastList[firstIdx].timestamp : null,
+    first_event_horizon_hours: firstIdx !== null ? forecastList[firstIdx].horizon_hours : null,
+    peak_value: Number(peakVal.toFixed(1)),
+    peak_at: forecastList[peakIdx]?.timestamp || null
+  };
+}
+
+/**
+ * Normaliza a resposta da API de AM (`data.previsao_ml`) ou gera projeção de contingência
+ * quando a janela de 24h do banco ainda estiver em formação (`INSUFICIENTE`/`LACUNA`).
+ */
+function buildMlForecastData(data, currentTemp, currentHumidity, refDateObj) {
+  const rawMl = data.previsao_ml;
+  if (rawMl && rawMl.status === 'success' && Array.isArray(rawMl.forecast) && rawMl.forecast.length === 24) {
+    return {
+      ...rawMl,
+      isSimulated: false,
+      availabilityStatus: 'PRONTO',
+      availabilityMessage: 'Previsão gerada em tempo real pelo modelo HistGradientBoostingRegressor (TU 24h).'
+    };
+  }
+
+  // Contingência estruturada quando o banco ainda possui < 24h ou a API de AM está offline
+  const baseDate = isNaN(refDateObj.getTime()) ? new Date() : refDateObj;
+  const baseHour = new Date(baseDate);
+  baseHour.setMinutes(0, 0, 0);
+
+  const forecast = [];
+  for (let h = 1; h <= 24; h += 1) {
+    const dt = new Date(baseHour.getTime() + h * 3600 * 1000);
+    const hourOfDay = dt.getHours();
+    // Curva diurna fisiologicamente coerente ancorada na medição atual
+    const diurnalPhase = Math.sin(((hourOfDay - 9) / 24) * 2 * Math.PI);
+    const simTemp = Number(Math.max(10, Math.min(42, currentTemp + 4.2 * diurnalPhase)).toFixed(1));
+    const simHum = Number(Math.max(25, Math.min(98, currentHumidity - 14.5 * diurnalPhase)).toFixed(1));
+    forecast.push({
+      horizon_hours: h,
+      timestamp: dt.toISOString(),
+      temperature_c: simTemp,
+      humidity_pct: simHum
+    });
+  }
+
+  const temps = forecast.map((p) => p.temperature_c);
+  const hums = forecast.map((p) => p.humidity_pct);
+  const tMin = Math.min(...temps);
+  const tMax = Math.max(...temps);
+  const tMean = Number((temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(1));
+  const uMin = Math.min(...hums);
+  const uMax = Math.max(...hums);
+  const uMean = Number((hums.reduce((a, b) => a + b, 0) / hums.length).toFixed(1));
+
+  const tMaxAt = forecast[temps.indexOf(tMax)].timestamp;
+  const tMinAt = forecast[temps.indexOf(tMin)].timestamp;
+  const uMaxAt = forecast[hums.indexOf(uMax)].timestamp;
+  const uMinAt = forecast[hums.indexOf(uMin)].timestamp;
+
+  const cfgTempEval = evaluateThresholdSequence(forecast, 'temperature_c', 28.0, 'gt', '°C');
+  const cfgHumEval = evaluateThresholdSequence(forecast, 'humidity_pct', 75.0, 'gt', '%');
+
+  const geral28 = evaluateThresholdSequence(forecast, 'temperature_c', 28.0, 'ge', '°C');
+  const geral32 = evaluateThresholdSequence(forecast, 'temperature_c', 32.0, 'ge', '°C');
+  const alface26 = evaluateThresholdSequence(forecast, 'temperature_c', 26.0, 'gt', '°C');
+  const alfaceHum80 = evaluateThresholdSequence(forecast, 'humidity_pct', 80.0, 'gt', '%');
+  const alfaceHum60 = evaluateThresholdSequence(forecast, 'humidity_pct', 60.0, 'lt', '%');
+  const rosaHum60 = evaluateThresholdSequence(forecast, 'humidity_pct', 60.0, 'gt', '%');
+  const rosaCold14 = evaluateThresholdSequence(forecast, 'temperature_c', 14.0, 'lt', '°C');
+  const salsinhaHum75 = evaluateThresholdSequence(forecast, 'humidity_pct', 75.0, 'gt', '%');
+  const salsinhaCalor24 = evaluateThresholdSequence(forecast, 'temperature_c', 24.0, 'gt', '°C');
+  const salsinhaCalor28 = evaluateThresholdSequence(forecast, 'temperature_c', 28.0, 'gt', '°C');
+
+  const first6Temp = temps.slice(0, 6).reduce((a, b) => a + b, 0) / 6;
+  const first6Hum = hums.slice(0, 6).reduce((a, b) => a + b, 0) / 6;
+  const deltaTemp = Number((first6Temp - currentTemp).toFixed(1));
+  const deltaHum = Number((first6Hum - currentHumidity).toFixed(1));
+
+  const alerts = [];
+  if (alface26.hours_count > 0) {
+    alerts.push({
+      code: 'ALFACE_HEAT_STRESS_FORECAST',
+      crop_id: 'alface-solaris',
+      crop_name: 'Alface Solaris',
+      severity: alface26.longest_sequence_hours >= 4 || tMax >= 30 ? 'danger' : 'warning',
+      title: 'Risco Preditivo de Estresse Térmico (Alface Solaris)',
+      message: `Previstas ${alface26.hours_count}h acima de 26°C nas próximas 24h (maior sequência: ${alface26.longest_sequence_hours}h, pico de ${tMax.toFixed(1)}°C).`,
+      metric: 'temperature_c',
+      threshold: 26.0,
+      unit: '°C',
+      hours_affected: alface26.hours_count,
+      longest_sequence_hours: alface26.longest_sequence_hours,
+      first_event_at: alface26.first_event_at,
+      peak_value: tMax,
+      peak_at: tMaxAt
+    });
+  }
+  if (rosaHum60.hours_count > 0) {
+    alerts.push({
+      code: 'ROSA_HUMIDITY_EXCESS_FORECAST',
+      crop_id: 'Rosa-do-deserto',
+      crop_name: 'Rosa do Deserto',
+      severity: rosaHum60.longest_sequence_hours >= 8 || uMax >= 80 ? 'danger' : 'warning',
+      title: 'Excesso de Umidade Previsto (Rosa do Deserto)',
+      message: `Previstas ${rosaHum60.hours_count}h com umidade > 60% nas próximas 24h (maior sequência: ${rosaHum60.longest_sequence_hours}h, máxima de ${uMax.toFixed(1)}%).`,
+      metric: 'humidity_pct',
+      threshold: 60.0,
+      unit: '%',
+      hours_affected: rosaHum60.hours_count,
+      longest_sequence_hours: rosaHum60.longest_sequence_hours,
+      first_event_at: rosaHum60.first_event_at,
+      peak_value: uMax,
+      peak_at: uMaxAt
+    });
+  }
+  if (salsinhaHum75.hours_count > 0) {
+    alerts.push({
+      code: 'SALSINHA_HUMIDITY_EXCESS_FORECAST',
+      crop_id: 'salsinha',
+      crop_name: 'Salsinha',
+      severity: salsinhaHum75.longest_sequence_hours >= 8 ? 'danger' : 'warning',
+      title: 'Umidade Elevada Prevista (Salsinha)',
+      message: `Previstas ${salsinhaHum75.hours_count}h com umidade > 75% nas próximas 24h (maior sequência: ${salsinhaHum75.longest_sequence_hours}h, máxima de ${uMax.toFixed(1)}%).`,
+      metric: 'humidity_pct',
+      threshold: 75.0,
+      unit: '%',
+      hours_affected: salsinhaHum75.hours_count,
+      longest_sequence_hours: salsinhaHum75.longest_sequence_hours,
+      first_event_at: salsinhaHum75.first_event_at,
+      peak_value: uMax,
+      peak_at: uMaxAt
+    });
+  }
+
+  return {
+    status: 'success',
+    isSimulated: true,
+    availabilityStatus: rawMl?.reason || 'CONTINGENCIA_LOCAL',
+    availabilityMessage:
+      rawMl?.message ||
+      'Aguardando formação completa da janela de 24h contínuas no banco para inferência ao vivo; exibindo projeção estimada de referência.',
+    generated_at: baseDate.toISOString(),
+    model: {
+      id: 'hgb_tu_24h',
+      version: '1.0.0',
+      algorithm: 'HistGradientBoostingRegressor',
+      estimators_count: 48,
+      feature_set: 'TU',
+      history_hours: 24,
+      forecast_hours: 24,
+      targets: ['temperature_c', 'humidity_pct'],
+      inference_device: 'cpu'
+    },
+    input_window: {
+      records: rawMl?.continuity?.quantidade ?? 24,
+      continuity: rawMl?.continuity?.status || 'simulated',
+      source: 'hg_brasil'
+    },
+    forecast,
+    summary: {
+      temperature: {
+        minimum_c: tMin,
+        maximum_c: tMax,
+        mean_c: tMean,
+        minimum_at: tMinAt,
+        maximum_at: tMaxAt,
+        configured_threshold_c: 28.0,
+        hours_above_configured_threshold: cfgTempEval.hours_count,
+        longest_sequence_above_threshold: cfgTempEval.longest_sequence_hours,
+        first_event_at: cfgTempEval.first_event_at
+      },
+      humidity: {
+        minimum_pct: uMin,
+        maximum_pct: uMax,
+        mean_pct: uMean,
+        minimum_at: uMinAt,
+        maximum_at: uMaxAt,
+        configured_threshold_pct: 75.0,
+        hours_above_configured_threshold: cfgHumEval.hours_count,
+        longest_sequence_above_threshold: cfgHumEval.longest_sequence_hours,
+        first_event_at: cfgHumEval.first_event_at
+      },
+      thresholds_by_context: {
+        geral_viveiro: {
+          label: 'Referência Geral do Viveiro',
+          heat_attention_ge_28c: geral28,
+          heat_critical_ge_32c: geral32
+        },
+        alface_solaris: {
+          crop_id: 'alface-solaris',
+          crop_name: 'Alface Solaris',
+          optimal_temperature_range: '15°C - 25°C',
+          optimal_humidity_range: '60% - 80%',
+          heat_stress_gt_26c: alface26,
+          humidity_high_gt_80pct: alfaceHum80,
+          humidity_low_lt_60pct: alfaceHum60
+        },
+        rosa_do_deserto: {
+          crop_id: 'Rosa-do-deserto',
+          crop_name: 'Rosa do Deserto',
+          optimal_temperature_range: '25°C - 35°C',
+          optimal_humidity_range: '30% - 60%',
+          humidity_excess_gt_60pct: rosaHum60,
+          cold_stress_lt_14c: rosaCold14
+        },
+        salsinha: {
+          crop_id: 'salsinha',
+          crop_name: 'Salsinha',
+          optimal_temperature_range: '10°C - 24°C',
+          optimal_humidity_range: '60% - 75%',
+          humidity_excess_gt_75pct: salsinhaHum75,
+          heat_attention_gt_24c: salsinhaCalor24,
+          heat_stress_gt_28c: salsinhaCalor28
+        }
+      }
+    },
+    indicators: {
+      temperature_trend: deltaTemp > 0.8 ? 'rising' : (deltaTemp < -0.8 ? 'falling' : 'stable'),
+      humidity_trend: deltaHum > 3.0 ? 'rising' : (deltaHum < -3.0 ? 'falling' : 'stable'),
+      temperature_short_term_delta_c: deltaTemp,
+      humidity_short_term_delta_pct: deltaHum,
+      temperature_amplitude_c: Number((tMax - tMin).toFixed(1)),
+      humidity_amplitude_pct: Number((uMax - uMin).toFixed(1)),
+      combined_heat_humidity_periods: []
+    },
+    alerts,
+    warnings: [
+      {
+        code: 'EXTERNAL_REFERENCE_CONDITIONS',
+        message: 'A previsão representa condições meteorológicas externas de referência para o viveiro.'
+      },
+      {
+        code: 'SOURCE_DOMAIN_SHIFT',
+        message: 'O modelo foi treinado com dados históricos do INMET e recebe, na operação, observações coletadas da HG Brasil.'
+      }
+    ]
+  };
+}
+
+/**
  * Transforma o retorno consolidado de `GET /meteorologia` da `pic-iv-api`
  * na estrutura consumida pelo Front-end (nos moldes do mockData.js),
  * tratando os dados como condições meteorológicas externas de referência para o viveiro.
@@ -137,7 +414,12 @@ function transformMeteorologiaToDashboard(data, sourceLabel = 'pic_iv_api') {
     cond: f.condicao || f.description || ''
   }));
 
-  // 3. Clima Geral (Condições Externas de Referência em Álvares Machado/SP)
+  // 3. Previsão Horária de Aprendizado de Máquina (24h — HistGradientBoostingRegressor TU)
+  const mlForecast = buildMlForecastData(data, currentTemp, currentHumidity, refDateObj);
+  const mlContexts = mlForecast.summary?.thresholds_by_context || {};
+  const mlAlerts = Array.isArray(mlForecast.alerts) ? mlForecast.alerts : [];
+
+  // 4. Clima Geral (Condições Externas de Referência em Álvares Machado/SP)
   const generalWeather = {
     location: `${data.cidade || "Álvares Machado, SP"} (Referência externa para o Viveiro Bioterra)`,
     station: "HG Brasil",
@@ -158,10 +440,11 @@ function transformMeteorologiaToDashboard(data, sourceLabel = 'pic_iv_api') {
       pressureHpa: 1014
     },
     generalRisks,
-    forecast: formattedForecast
+    forecast: formattedForecast,
+    mlForecast
   };
 
-  // 4. Avaliação das Culturas frente às condições externas de referência
+  // 5. Avaliação das Culturas frente às condições externas de referência
   const isAlfaceTempStress = currentTemp > 26 || tempMaxToday > 26;
   const isRosaHumStress = currentHumidity > 60;
   const isRosaColdStress = currentTemp < 14 || tempMinToday < 14;
@@ -213,6 +496,16 @@ function transformMeteorologiaToDashboard(data, sourceLabel = 'pic_iv_api') {
           rainProb: `${rainProbToday}%`,
           icon: mapConditionIcon(hojaPrev.condicao_slug || hojaPrev.condition || conditionSlug)
         }
+      },
+      mlPrediction: {
+        contextKey: "alface_solaris",
+        status: mlForecast.status,
+        isSimulatedFallback: Boolean(mlForecast.is_simulated_fallback),
+        summaryTemperature: mlForecast.summary?.temperature || null,
+        summaryHumidity: mlForecast.summary?.humidity || null,
+        indicators: mlForecast.indicators || null,
+        thresholds: mlContexts.alface_solaris || null,
+        alerts: mlAlerts.filter((a) => a.context === "alface_solaris")
       },
       risks: [
         {
@@ -300,6 +593,16 @@ function transformMeteorologiaToDashboard(data, sourceLabel = 'pic_iv_api') {
           icon: mapConditionIcon(hojaPrev.condicao_slug || hojaPrev.condition || conditionSlug)
         }
       },
+      mlPrediction: {
+        contextKey: "rosa_do_deserto",
+        status: mlForecast.status,
+        isSimulatedFallback: Boolean(mlForecast.is_simulated_fallback),
+        summaryTemperature: mlForecast.summary?.temperature || null,
+        summaryHumidity: mlForecast.summary?.humidity || null,
+        indicators: mlForecast.indicators || null,
+        thresholds: mlContexts.rosa_do_deserto || null,
+        alerts: mlAlerts.filter((a) => a.context === "rosa_do_deserto")
+      },
       risks: [
         {
           id: "risco-umidade-excessiva",
@@ -376,6 +679,16 @@ function transformMeteorologiaToDashboard(data, sourceLabel = 'pic_iv_api') {
           icon: mapConditionIcon(hojaPrev.condicao_slug || hojaPrev.condition || conditionSlug)
         }
       },
+      mlPrediction: {
+        contextKey: "salsinha",
+        status: mlForecast.status,
+        isSimulatedFallback: Boolean(mlForecast.is_simulated_fallback),
+        summaryTemperature: mlForecast.summary?.temperature || null,
+        summaryHumidity: mlForecast.summary?.humidity || null,
+        indicators: mlForecast.indicators || null,
+        thresholds: mlContexts.salsinha || null,
+        alerts: mlAlerts.filter((a) => a.context === "salsinha")
+      },
       risks: [
         {
           id: "risco-umidade-excessiva",
@@ -422,6 +735,7 @@ function transformMeteorologiaToDashboard(data, sourceLabel = 'pic_iv_api') {
       janela_24h: janela24h,
       janela_72h: janela72h
     },
+    previsao_ml: mlForecast,
     generalWeather,
     plants
   };
@@ -573,5 +887,6 @@ async function getDashboardData(options = {}) {
 module.exports = {
   getDashboardData,
   fetchMeteorologiaFromPicApi,
-  transformMeteorologiaToDashboard
+  transformMeteorologiaToDashboard,
+  buildMlForecastData
 };

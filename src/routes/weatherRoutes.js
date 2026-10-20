@@ -66,6 +66,32 @@ router.get(['/meteorologia', '/forecast'], async (req, res) => {
 });
 
 /**
+ * GET /api/weather/ml-forecast
+ * Retorna especificamente o bloco de previsão horária 24h do modelo de Aprendizado de Máquina
+ * (HistGradientBoostingRegressor TU), incluindo métricas horárias, limiares por cultura e alertas.
+ */
+router.get('/ml-forecast', async (req, res) => {
+  try {
+    const dashboard = await getDashboardData({
+      dias: 5,
+      max_idade_minutos: req.query.max_idade_minutos ? Number(req.query.max_idade_minutos) : 60,
+      forcar_coleta: req.query.forcar_coleta === 'true'
+    });
+    return res.json({
+      success: true,
+      source: dashboard.source,
+      previsao_ml: dashboard.previsao_ml
+    });
+  } catch (error) {
+    console.error('[ERROR] Erro ao consultar previsão de ML:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Erro ao obter previsão de aprendizado de máquina.'
+    });
+  }
+});
+
+/**
  * GET /api/weather/history
  * Retorna dados históricos meteorológicos baseados nos padrões de medição do INMET (2004 até 08/2026).
  */
