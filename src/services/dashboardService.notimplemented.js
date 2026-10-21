@@ -211,13 +211,13 @@ function transformObservacoesToDashboard(observacoesPayload, sourceLabel = 'pic_
 
   const plants = [
     {
-      id: "alface-solaris",
-      name: "Alface Solaris",
-      scientificName: "Lactuca sativa var. capitata (Solaris)",
+      id: "alface-crespa",
+      name: "Alface Crespa",
+      scientificName: "Lactuca sativa var. capitata (Crespa)",
       category: "Hortaliça Folhosa",
       badge: isAlfaceTempStress ? "Atenção: Calor Externo" : "Condição Externa Favorável",
       badgeLevel: isAlfaceTempStress ? "warning" : "success",
-      image: "https://images.unsplash.com/photo-1556801712-76c8eb07bbc9?auto=format&fit=crop&w=600&q=80",
+      image: "https://media02.stockfood.com/largepreviews/MzQxMTQwNzcx/11004541-Lettuce-lactuca-sativa-var-capitata.jpg",
       description: "Variedade selecionada para cultivo protegido, suscetível a queimaduras nas bordas foliares em períodos de alta radiação e calor.",
       metrics: {
         humidity: {

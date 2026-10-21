@@ -138,10 +138,10 @@ function buildMlForecastData(data, currentTemp, currentHumidity, refDateObj) {
   if (alface26.hours_count > 0) {
     alerts.push({
       code: 'ALFACE_HEAT_STRESS_FORECAST',
-      crop_id: 'alface-solaris',
-      crop_name: 'Alface Solaris',
+      crop_id: 'alface-crespa',
+      crop_name: 'Alface Crespa',
       severity: alface26.longest_sequence_hours >= 4 || tMax >= 30 ? 'danger' : 'warning',
-      title: 'Risco Preditivo de Estresse Térmico (Alface Solaris)',
+      title: 'Risco Preditivo de Estresse Térmico (Alface Crespa)',
       message: `Previstas ${alface26.hours_count}h acima de 26°C nas próximas 24h (maior sequência: ${alface26.longest_sequence_hours}h, pico de ${tMax.toFixed(1)}°C).`,
       metric: 'temperature_c',
       threshold: 26.0,
@@ -244,9 +244,9 @@ function buildMlForecastData(data, currentTemp, currentHumidity, refDateObj) {
           heat_attention_ge_28c: geral28,
           heat_critical_ge_32c: geral32
         },
-        alface_solaris: {
-          crop_id: 'alface-solaris',
-          crop_name: 'Alface Solaris',
+        alface_crespa: {
+          crop_id: 'alface-crespa',
+          crop_name: 'Alface Crespa',
           optimal_temperature_range: '15°C - 25°C',
           optimal_humidity_range: '60% - 80%',
           heat_stress_gt_26c: alface26,
@@ -456,13 +456,13 @@ function transformMeteorologiaToDashboard(data, sourceLabel = 'pic_iv_api') {
 
   const plants = [
     {
-      id: "alface-solaris",
-      name: "Alface Solaris",
-      scientificName: "Lactuca sativa var. capitata (Solaris)",
+      id: "alface-crespa",
+      name: "Alface Crespa",
+      scientificName: "Lactuca sativa var. capitata (Crespa)",
       category: "Hortaliça Folhosa",
       badge: isAlfaceTempStress ? "Atenção: Stress Térmico" : "Condição Externa Favorável",
       badgeLevel: isAlfaceTempStress ? "warning" : "success",
-      image: "https://images.unsplash.com/photo-1556801712-76c8eb07bbc9?auto=format&fit=crop&w=600&q=80",
+      image: "https://media02.stockfood.com/largepreviews/MzQxMTQwNzcx/11004541-Lettuce-lactuca-sativa-var-capitata.jpg",
       description: "Variedade selecionada para cultivo protegido, suscetível a queimaduras nas bordas foliares em períodos de alta radiação e calor.",
       metrics: {
         humidity: {
@@ -498,14 +498,14 @@ function transformMeteorologiaToDashboard(data, sourceLabel = 'pic_iv_api') {
         }
       },
       mlPrediction: {
-        contextKey: "alface_solaris",
+        contextKey: "alface_crespa",
         status: mlForecast.status,
         isSimulatedFallback: Boolean(mlForecast.is_simulated_fallback),
         summaryTemperature: mlForecast.summary?.temperature || null,
         summaryHumidity: mlForecast.summary?.humidity || null,
         indicators: mlForecast.indicators || null,
-        thresholds: mlContexts.alface_solaris || null,
-        alerts: mlAlerts.filter((a) => a.context === "alface_solaris")
+        thresholds: mlContexts.alface_crespa || null,
+        alerts: mlAlerts.filter((a) => a.context === "alface_crespa")
       },
       risks: [
         {

@@ -77,7 +77,7 @@ function generateHistoricalData() {
 
       // Análise de risco para culturas do Viveiro Bioterra
       const risksByCrop = {
-        alface_solaris: {
+        alface_crespa: {
           stress_termico: tempMax >= 31 ? "ALTO" : (tempMax >= 28 ? "MEDIO" : "BAIXO"),
           dias_nublados_estimados: humidity > 72 ? Math.round(precipitation / 15) : 3,
           tempo_sem_chuva_dias: precipitation < 40 ? 22 : (precipitation < 80 ? 14 : 6)
