@@ -462,7 +462,7 @@ function transformMeteorologiaToDashboard(data, sourceLabel = 'pic_iv_api') {
       category: "Hortaliça Folhosa",
       badge: isAlfaceTempStress ? "Atenção: Stress Térmico" : "Condição Externa Favorável",
       badgeLevel: isAlfaceTempStress ? "warning" : "success",
-      image: "https://media02.stockfood.com/largepreviews/MzQxMTQwNzcx/11004541-Lettuce-lactuca-sativa-var-capitata.jpg",
+      image: "https://images.tcdn.com.br/img/img_prod/808621/semente_de_alface_crespa_camila_peletizada_125_000_sementes_topseed_6025_3_0430465c9f16616c80535e9925ffe3a2.jpg",
       description: "Variedade selecionada para cultivo protegido, suscetível a queimaduras nas bordas foliares em períodos de alta radiação e calor.",
       metrics: {
         humidity: {
